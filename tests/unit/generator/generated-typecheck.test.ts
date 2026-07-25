@@ -110,6 +110,18 @@ const endpoints: ParsedEndpoint[] = [
         action: 'getActiveGeneration',
         types: { response: 'GenerationView | null' },
     },
+    {
+        method: 'GET',
+        path: '/items/:id/activity',
+        handler: 'api::item.item.activity',
+        controller: 'item',
+        action: 'activity',
+        types: {
+            params: "{ id: string | 'current' }",
+            query: '{ page?: number; locale?: string }',
+            response: '{ total: number }',
+        },
+    },
 ]
 
 // Exercises populate narrowing, invalid-key rejection, and the Bug D mangle
@@ -139,6 +151,20 @@ async function _assert() {
   await client.items.create({})
   // update is partial — an empty object is fine
   await client.items.update('id', {})
+  await client.items.create(
+    { title: 'localized' },
+    { query: { locale: 'zh-CN', status: 'published' } },
+  )
+  // @ts-expect-error - mutation status is limited to Strapi document statuses
+  await client.items.update('id', {}, { query: { status: 'archived' } })
+  const activity = await client.items.activity('current', {
+    page: 2,
+    locale: 'zh-CN',
+  })
+  const _total: number = activity.total
+  void _total
+  // @ts-expect-error - the controller-declared query type is enforced
+  await client.items.activity('id', { page: 'two' })
   await client.items.createItem()
 }
 void _assert

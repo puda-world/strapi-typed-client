@@ -414,6 +414,22 @@ import type { ${filterImports.join(', ')} } from './types.js'`
             ],
         })
 
+        sf.addInterface({
+            name: 'MutationOptions',
+            isExported: true,
+            extends: ['NextOptions'],
+            docs: [
+                'Options for create, update, and delete requests. `query` is serialized onto the REST URL so localized and draft/publish mutations remain type-safe.',
+            ],
+            properties: [
+                {
+                    name: 'query',
+                    type: "{ locale?: string; status?: 'draft' | 'published' }",
+                    hasQuestionToken: true,
+                },
+            ],
+        })
+
         // RequestConfig — the outgoing request as seen by onRequest
         sf.addInterface({
             name: 'RequestConfig',
@@ -1216,7 +1232,7 @@ class BaseAPI {
     return response.json()
   }
 
-  protected buildQueryString(params?: QueryParams): string {
+  protected buildQueryString(params?: object): string {
     if (!params) return ''
     const query = stringifyQuery(params as Record<string, unknown>)
     return query ? \`?\${query}\` : ''
@@ -1368,50 +1384,50 @@ class CollectionAPI<
     return this.unwrap(response)
   }
 
-  async create(data: TCreateInput | FormData, nextOptions?: NextOptions): Promise<TBase> {
+  async create(data: TCreateInput | FormData, options?: MutationOptions): Promise<TBase> {
     // FormData is sent as-is; everything else goes through the envelope hook
     const body = data instanceof FormData
       ? data
       : JSON.stringify(this.wrapBody(data))
 
-    const url = \`\${this.config.baseURL}/api/\${this.endpoint}\`
+    const url = \`\${this.config.baseURL}/api/\${this.endpoint}\${this.buildQueryString(options?.query)}\`
     const response = await this.request<StrapiResponse<TBase>>(
       url,
       {
         method: 'POST',
         body,
       },
-      nextOptions
+      options
     )
     return this.unwrap(response)
   }
 
-  async update(documentId: string, data: TUpdateInput | FormData, nextOptions?: NextOptions): Promise<TBase> {
+  async update(documentId: string, data: TUpdateInput | FormData, options?: MutationOptions): Promise<TBase> {
     // FormData is sent as-is; everything else goes through the envelope hook
     const body = data instanceof FormData
       ? data
       : JSON.stringify(this.wrapBody(data))
 
-    const url = \`\${this.config.baseURL}/api/\${this.endpoint}/\${documentId}\`
+    const url = \`\${this.config.baseURL}/api/\${this.endpoint}/\${documentId}\${this.buildQueryString(options?.query)}\`
     const response = await this.request<StrapiResponse<TBase>>(
       url,
       {
         method: 'PUT',
         body,
       },
-      nextOptions
+      options
     )
     return this.unwrap(response)
   }
 
-  async delete(documentId: string, nextOptions?: NextOptions): Promise<TBase | null> {
-    const url = \`\${this.config.baseURL}/api/\${this.endpoint}/\${documentId}\`
+  async delete(documentId: string, options?: MutationOptions): Promise<TBase | null> {
+    const url = \`\${this.config.baseURL}/api/\${this.endpoint}/\${documentId}\${this.buildQueryString(options?.query)}\`
     const response = await this.request<StrapiResponse<TBase> | null>(
       url,
       {
         method: 'DELETE',
       },
-      nextOptions
+      options
     )
     return this.unwrap(response) ?? null
   }
@@ -1462,20 +1478,20 @@ class SingleTypeAPI<
     return response.data
   }
 
-  async update(data: TUpdateInput | FormData, nextOptions?: NextOptions): Promise<TBase> {
+  async update(data: TUpdateInput | FormData, options?: MutationOptions): Promise<TBase> {
     // If data is FormData, use it directly; otherwise wrap in { data } and JSON stringify
     const body = data instanceof FormData
       ? data
       : JSON.stringify({ data })
 
-    const url = \`\${this.config.baseURL}/api/\${this.endpoint}\`
+    const url = \`\${this.config.baseURL}/api/\${this.endpoint}\${this.buildQueryString(options?.query)}\`
     const response = await this.request<StrapiResponse<TBase>>(
       url,
       {
         method: 'PUT',
         body,
       },
-      nextOptions
+      options
     )
     return response.data
   }

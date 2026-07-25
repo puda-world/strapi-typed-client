@@ -4,6 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
 import { Generator } from '../../../src/generator/index.js'
+import type { ParsedEndpoint } from '../../../src/shared/endpoint-types.js'
 import { mockSchema } from './fixtures/mock-schema.js'
 
 /**
@@ -46,9 +47,23 @@ describe('generated client runtime behaviour', () => {
 
     beforeAll(async () => {
         tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'strapi-types-rt-'))
+        const endpoints: ParsedEndpoint[] = [
+            {
+                method: 'GET',
+                path: '/items/:id/activity',
+                handler: 'api::item.item.activity',
+                controller: 'item',
+                action: 'activity',
+                types: {
+                    params: '{ id: string }',
+                    query: '{ page?: number; locale?: string }',
+                    response: '{ total: number }',
+                },
+            },
+        ]
         await new Generator(tmpDir).generate(
             mockSchema,
-            [],
+            endpoints,
             undefined,
             '',
             '',
@@ -93,6 +108,38 @@ describe('generated client runtime behaviour', () => {
         await client.items.create({ title: 'x' })
         expect(calls[0].init.method).toBe('POST')
         expect(calls[0].init.body).toBeTruthy()
+    })
+
+    it('adds locale and publication status to collection mutations', async () => {
+        const { fetch, calls } = recordingFetch(() => json({ data: {} }))
+        const client = new StrapiClient({
+            baseURL: 'http://x',
+            fetch,
+        })
+        await client.items.create(
+            { title: 'x' },
+            { query: { locale: 'zh-CN', status: 'published' } },
+        )
+        expect(calls[0].url).toBe(
+            'http://x/api/items?locale=zh-CN&status=published',
+        )
+    })
+
+    it('adds typed query parameters to custom endpoint URLs', async () => {
+        const { fetch, calls } = recordingFetch(() =>
+            json({ data: { total: 3 } }),
+        )
+        const client = new StrapiClient({
+            baseURL: 'http://x',
+            fetch,
+        })
+        await client.items.activity('item-1', {
+            page: 2,
+            locale: 'zh-CN',
+        })
+        expect(calls[0].url).toBe(
+            'http://x/api/items/item-1/activity?page=2&locale=zh-CN',
+        )
     })
 
     it('an explicitly undefined field on the returned config clears it', async () => {

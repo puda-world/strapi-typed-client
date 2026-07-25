@@ -41,6 +41,7 @@ export function convertEndpointsToRoutes(
             controller: endpoint.controller,
             action: endpoint.action,
             params: extractPathParams(endpoint.path),
+            ...(endpoint.types && { types: endpoint.types }),
             ...(endpoint.prefix !== undefined && { prefix: endpoint.prefix }),
             ...(endpoint.pluginName && { pluginName: endpoint.pluginName }),
         }
@@ -213,6 +214,8 @@ export function convertEndpointsToCustomTypes(
                 const ap = toPascalCasePreserve(endpoint.action)
                 if (endpoint.types.body) ownNames.add(`${ap}Request`)
                 if (endpoint.types.response) ownNames.add(`${ap}Response`)
+                if (endpoint.types.params) ownNames.add(`${ap}Params`)
+                if (endpoint.types.query) ownNames.add(`${ap}Query`)
             }
         }
         const nsKnown = new Set<string>([...knownTypeNames, ...ownNames])
@@ -264,6 +267,32 @@ export function convertEndpointsToCustomTypes(
                         handler: endpoint.handler,
                     }
                     existing.outputType = `${namespaceName}.${typeName}`
+                    types.set(endpoint.handler, existing)
+                }
+
+                if (endpoint.types.params) {
+                    const typeName = `${actionPascal}Params`
+                    namespaceLines.push(
+                        `  export type ${typeName} = ${sanitizeTypeRefs(endpoint.types.params, nsKnown, unresolved)}`,
+                    )
+
+                    const existing = types.get(endpoint.handler) || {
+                        handler: endpoint.handler,
+                    }
+                    existing.paramsType = `${namespaceName}.${typeName}`
+                    types.set(endpoint.handler, existing)
+                }
+
+                if (endpoint.types.query) {
+                    const typeName = `${actionPascal}Query`
+                    namespaceLines.push(
+                        `  export type ${typeName} = ${sanitizeTypeRefs(endpoint.types.query, nsKnown, unresolved)}`,
+                    )
+
+                    const existing = types.get(endpoint.handler) || {
+                        handler: endpoint.handler,
+                    }
+                    existing.queryType = `${namespaceName}.${typeName}`
                     types.set(endpoint.handler, existing)
                 }
             }

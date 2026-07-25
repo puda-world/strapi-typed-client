@@ -249,7 +249,7 @@ describe('ClientGenerator', () => {
             expect(output).toContain('class BaseAPI')
             expect(output).toContain('protected async request<R>(')
             expect(output).toContain(
-                'protected buildQueryString(params?: QueryParams): string',
+                'protected buildQueryString(params?: object): string',
             )
         })
         it('should wrap fetch in try-catch with StrapiConnectionError for network errors', () => {
@@ -475,17 +475,29 @@ describe('ClientGenerator', () => {
         })
         it('should generate create method with TCreateInput | FormData', () => {
             expect(output).toContain(
-                'async create(data: TCreateInput | FormData, nextOptions?: NextOptions): Promise<TBase>',
+                'async create(data: TCreateInput | FormData, options?: MutationOptions): Promise<TBase>',
             )
         })
         it('should generate update method', () => {
             expect(output).toContain(
-                'async update(documentId: string, data: TUpdateInput | FormData, nextOptions?: NextOptions): Promise<TBase>',
+                'async update(documentId: string, data: TUpdateInput | FormData, options?: MutationOptions): Promise<TBase>',
             )
         })
         it('should generate delete method', () => {
             expect(output).toContain(
-                'async delete(documentId: string, nextOptions?: NextOptions): Promise<TBase | null>',
+                'async delete(documentId: string, options?: MutationOptions): Promise<TBase | null>',
+            )
+        })
+
+        it('should append locale/status query options to mutation URLs', () => {
+            expect(output).toContain(
+                'export interface MutationOptions extends NextOptions',
+            )
+            expect(output).toContain(
+                "query?: { locale?: string; status?: 'draft' | 'published' }",
+            )
+            expect(output).toContain(
+                '${this.buildQueryString(options?.query)}`',
             )
         })
     })
@@ -591,7 +603,7 @@ describe('ClientGenerator', () => {
                 ),
             )
             expect(section).toContain(
-                'async update(data: TUpdateInput | FormData, nextOptions?: NextOptions): Promise<TBase>',
+                'async update(data: TUpdateInput | FormData, options?: MutationOptions): Promise<TBase>',
             )
             expect(section).not.toContain('async delete(')
             expect(section).not.toContain('async create(')
@@ -736,6 +748,53 @@ describe('ClientGenerator', () => {
             )
             expect(result).not.toContain('/pesquisadoreses')
             expect(result).not.toContain('${this.endpoint}es/')
+        })
+
+        it('should generate typed params/query and pass NextOptions for custom routes', () => {
+            const endpoints: ParsedEndpoint[] = [
+                {
+                    method: 'GET',
+                    path: '/items/:id/activity',
+                    handler: 'api::item.item.activity',
+                    controller: 'item',
+                    action: 'activity',
+                    types: {
+                        params: "{ id: string | 'current' }",
+                        query: '{ page?: number; locale?: string }',
+                        response: '{ data: { total: number } }',
+                    },
+                },
+            ]
+
+            const result = new ClientGenerator().generate(mockSchema, endpoints)
+
+            expect(result).toContain(
+                "id: ItemAPI.ActivityParams['id'], query?: ItemAPI.ActivityQuery, nextOptions?: NextOptions",
+            )
+            expect(result).toContain(
+                'const url = `${baseUrl}${this.buildQueryString(query)}`',
+            )
+            expect(result).toContain(
+                'this.request<StrapiResponse<ItemAPI.ActivityResponse>>(url, {}, nextOptions)',
+            )
+        })
+
+        it('should allow untyped custom routes to receive query and request options', () => {
+            const endpoints: ParsedEndpoint[] = [
+                {
+                    method: 'PUT',
+                    path: '/items/:id/reorder',
+                    handler: 'api::item.item.reorder',
+                    controller: 'item',
+                    action: 'reorder',
+                },
+            ]
+
+            const result = new ClientGenerator().generate(mockSchema, endpoints)
+
+            expect(result).toContain(
+                'async reorder(id: string, data?: any | FormData, query?: Record<string, unknown>, nextOptions?: NextOptions)',
+            )
         })
     })
 

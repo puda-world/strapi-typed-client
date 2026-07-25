@@ -5,6 +5,8 @@ export interface CustomEndpointType {
     handler: string // e.g., 'team-invitation.create'
     inputType?: string // e.g., 'TeamInvitationAPI.CreateRequest'
     outputType?: string // e.g., 'TeamInvitationAPI.CreateResponse'
+    paramsType?: string // e.g., 'TeamInvitationAPI.CreateParams'
+    queryType?: string // e.g., 'TeamInvitationAPI.CreateQuery'
 }
 
 /**

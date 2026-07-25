@@ -86,6 +86,8 @@ export class CustomApiGenerator {
         const customType = this.customTypes?.types.get(route.handler)
         const inputType = customType?.inputType || 'any'
         const outputType = customType?.outputType || 'any'
+        const paramsType = customType?.paramsType
+        const queryType = customType?.queryType || 'Record<string, unknown>'
         let methodName = toCamelCase(route.action)
         // On a content-type class, a custom action sharing a base CRUD name
         // would emit an incompatible override (TS2416) and hide the typed base
@@ -98,7 +100,12 @@ export class CustomApiGenerator {
         ) {
             methodName = methodName + toPascalCase(contentTypeName)
         }
-        const params = this.generateMethodParams(route, inputType)
+        const params = this.generateMethodParams(
+            route,
+            inputType,
+            paramsType,
+            queryType,
+        )
         const hasBody =
             route.method === 'POST' ||
             route.method === 'PUT' ||
@@ -119,13 +126,15 @@ export class CustomApiGenerator {
       {
         method: '${route.method}',
         body,
-      }
+      },
+      nextOptions
     )`
             : route.method === 'GET'
-              ? `    const response = await this.request<StrapiResponse<${outputType}>>(url)`
+              ? `    const response = await this.request<StrapiResponse<${outputType}>>(url, {}, nextOptions)`
               : `    const response = await this.request<StrapiResponse<${outputType}>>(
       url,
-      { method: '${route.method}' }
+      { method: '${route.method}' },
+      nextOptions
     )`
 
         return `  /**
@@ -133,7 +142,8 @@ export class CustomApiGenerator {
    * Handler: ${route.handler}
    */
   async ${methodName}(${params}): Promise<${outputType}> {
-    const url = ${urlExpression}
+    const baseUrl = ${urlExpression}
+    const url = \`\${baseUrl}\${this.buildQueryString(query)}\`
 ${bodyBlock}
     return response.data
   }`
@@ -142,12 +152,18 @@ ${bodyBlock}
     private generateMethodParams(
         route: ParsedRoute,
         inputType: string = 'any',
+        paramsType?: string,
+        queryType: string = 'Record<string, unknown>',
     ): string {
         const params: string[] = []
 
         // Add path parameters
         for (const param of route.params) {
-            params.push(`${param}: string`)
+            params.push(
+                paramsType
+                    ? `${param}: ${paramsType}['${param}']`
+                    : `${param}: string`,
+            )
         }
 
         // Add data parameter for POST/PUT/PATCH (support both typed data and FormData)
@@ -158,6 +174,9 @@ ${bodyBlock}
         ) {
             params.push(`data?: ${inputType} | FormData`)
         }
+
+        params.push(`query?: ${queryType}`)
+        params.push('nextOptions?: NextOptions')
 
         return params.join(', ')
     }

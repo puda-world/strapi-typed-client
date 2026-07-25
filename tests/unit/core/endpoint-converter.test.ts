@@ -72,6 +72,27 @@ describe('convertEndpointsToRoutes', () => {
         expect(result.all[0].params).toEqual(['teamId', 'memberId'])
     })
 
+    it('should preserve endpoint body, response, params, and query types', () => {
+        const endpoints: ParsedEndpoint[] = [
+            {
+                method: 'GET',
+                path: '/comments/:rootId/replies',
+                handler: 'comment.findReplies',
+                controller: 'comment',
+                action: 'findReplies',
+                types: {
+                    params: '{ rootId: string }',
+                    query: '{ page?: number; locale?: string }',
+                    response: '{ data: { comments: unknown[] } }',
+                },
+            },
+        ]
+
+        const result = convertEndpointsToRoutes(endpoints)
+
+        expect(result.all[0].types).toEqual(endpoints[0].types)
+    })
+
     it('should group routes by controller', () => {
         const endpoints: ParsedEndpoint[] = [
             {
@@ -202,6 +223,34 @@ describe('convertEndpointsToCustomTypes', () => {
         const types = result.types.get('checkout.buyPlan')
         expect(types?.inputType).toBe('CheckoutAPI.BuyPlanRequest')
         expect(types?.outputType).toBe('CheckoutAPI.BuyPlanResponse')
+    })
+
+    it('should create params and query types for custom endpoint methods', () => {
+        const endpoints: ParsedEndpoint[] = [
+            {
+                method: 'GET',
+                path: '/comments/:rootId/replies',
+                handler: 'comment.findReplies',
+                controller: 'comment',
+                action: 'findReplies',
+                types: {
+                    params: '{ rootId: string }',
+                    query: '{ page?: number; locale?: string }',
+                },
+            },
+        ]
+
+        const result = convertEndpointsToCustomTypes(endpoints)
+        const types = result.types.get('comment.findReplies')
+
+        expect(types?.paramsType).toBe('CommentAPI.FindRepliesParams')
+        expect(types?.queryType).toBe('CommentAPI.FindRepliesQuery')
+        expect(result.typeDefinitions[0]).toContain(
+            'export type FindRepliesParams = { rootId: string }',
+        )
+        expect(result.typeDefinitions[0]).toContain(
+            'export type FindRepliesQuery = { page?: number; locale?: string }',
+        )
     })
 
     it('should group multiple endpoints of same controller in one namespace', () => {
