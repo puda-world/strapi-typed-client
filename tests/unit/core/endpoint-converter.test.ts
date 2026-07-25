@@ -72,7 +72,7 @@ describe('convertEndpointsToRoutes', () => {
         expect(result.all[0].params).toEqual(['teamId', 'memberId'])
     })
 
-    it('should preserve endpoint body, response, params, and query types', () => {
+    it('should preserve endpoint body, response, params, query, and meta types', () => {
         const endpoints: ParsedEndpoint[] = [
             {
                 method: 'GET',
@@ -84,6 +84,7 @@ describe('convertEndpointsToRoutes', () => {
                     params: '{ rootId: string }',
                     query: '{ page?: number; locale?: string }',
                     response: '{ data: { comments: unknown[] } }',
+                    meta: '{ pagination: { page: number; total: number } }',
                 },
             },
         ]
@@ -225,7 +226,7 @@ describe('convertEndpointsToCustomTypes', () => {
         expect(types?.outputType).toBe('CheckoutAPI.BuyPlanResponse')
     })
 
-    it('should create params and query types for custom endpoint methods', () => {
+    it('should create params, query, and meta types for custom endpoint methods', () => {
         const endpoints: ParsedEndpoint[] = [
             {
                 method: 'GET',
@@ -236,6 +237,7 @@ describe('convertEndpointsToCustomTypes', () => {
                 types: {
                     params: '{ rootId: string }',
                     query: '{ page?: number; locale?: string }',
+                    meta: '{ pagination: { page: number; total: number } }',
                 },
             },
         ]
@@ -245,11 +247,15 @@ describe('convertEndpointsToCustomTypes', () => {
 
         expect(types?.paramsType).toBe('CommentAPI.FindRepliesParams')
         expect(types?.queryType).toBe('CommentAPI.FindRepliesQuery')
+        expect(types?.metaType).toBe('CommentAPI.FindRepliesMeta')
         expect(result.typeDefinitions[0]).toContain(
             'export type FindRepliesParams = { rootId: string }',
         )
         expect(result.typeDefinitions[0]).toContain(
             'export type FindRepliesQuery = { page?: number; locale?: string }',
+        )
+        expect(result.typeDefinitions[0]).toContain(
+            'export type FindRepliesMeta = { pagination: { page: number; total: number } }',
         )
     })
 

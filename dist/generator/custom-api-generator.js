@@ -79,6 +79,11 @@ export class CustomApiGenerator {
         const outputType = customType?.outputType || 'any'
         const paramsType = customType?.paramsType
         const queryType = customType?.queryType || 'Record<string, unknown>'
+        const metaType = customType?.metaType
+        const responseType = metaType
+            ? `StrapiResponse<${outputType}> & { meta: ${metaType} }`
+            : `StrapiResponse<${outputType}>`
+        const returnType = metaType ? responseType : outputType
         let methodName = toCamelCase(route.action)
         // On a content-type class, a custom action sharing a base CRUD name
         // would emit an incompatible override (TS2416) and hide the typed base
@@ -110,7 +115,7 @@ export class CustomApiGenerator {
       ? data
       : data ? JSON.stringify(data) : undefined
 
-    const response = await this.request<StrapiResponse<${outputType}>>(
+    const response = await this.request<${responseType}>(
       url,
       {
         method: '${route.method}',
@@ -119,8 +124,8 @@ export class CustomApiGenerator {
       nextOptions
     )`
             : route.method === 'GET'
-              ? `    const response = await this.request<StrapiResponse<${outputType}>>(url, {}, nextOptions)`
-              : `    const response = await this.request<StrapiResponse<${outputType}>>(
+              ? `    const response = await this.request<${responseType}>(url, {}, nextOptions)`
+              : `    const response = await this.request<${responseType}>(
       url,
       { method: '${route.method}' },
       nextOptions
@@ -129,11 +134,11 @@ export class CustomApiGenerator {
    * ${route.method} ${route.path}
    * Handler: ${route.handler}
    */
-  async ${methodName}(${params}): Promise<${outputType}> {
+  async ${methodName}(${params}): Promise<${returnType}> {
     const baseUrl = ${urlExpression}
     const url = \`\${baseUrl}\${this.buildQueryString(query)}\`
 ${bodyBlock}
-    return response.data
+    return ${metaType ? 'response' : 'response.data'}
   }`
     }
     generateMethodParams(

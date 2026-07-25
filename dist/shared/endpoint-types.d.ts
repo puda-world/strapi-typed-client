@@ -3,13 +3,14 @@
  * @module shared/endpoint-types
  */
 /**
- * Type information for a custom endpoint (body, response, params, query)
+ * Type information for a custom endpoint (body, response, params, query, meta)
  */
 export interface EndpointType {
     body?: string
     response?: string
     params?: string
     query?: string
+    meta?: string
 }
 /**
  * A parsed endpoint from Strapi custom routes

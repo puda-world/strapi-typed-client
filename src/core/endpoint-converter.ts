@@ -216,6 +216,7 @@ export function convertEndpointsToCustomTypes(
                 if (endpoint.types.response) ownNames.add(`${ap}Response`)
                 if (endpoint.types.params) ownNames.add(`${ap}Params`)
                 if (endpoint.types.query) ownNames.add(`${ap}Query`)
+                if (endpoint.types.meta) ownNames.add(`${ap}Meta`)
             }
         }
         const nsKnown = new Set<string>([...knownTypeNames, ...ownNames])
@@ -293,6 +294,19 @@ export function convertEndpointsToCustomTypes(
                         handler: endpoint.handler,
                     }
                     existing.queryType = `${namespaceName}.${typeName}`
+                    types.set(endpoint.handler, existing)
+                }
+
+                if (endpoint.types.meta) {
+                    const typeName = `${actionPascal}Meta`
+                    namespaceLines.push(
+                        `  export type ${typeName} = ${sanitizeTypeRefs(endpoint.types.meta, nsKnown, unresolved)}`,
+                    )
+
+                    const existing = types.get(endpoint.handler) || {
+                        handler: endpoint.handler,
+                    }
+                    existing.metaType = `${namespaceName}.${typeName}`
                     types.set(endpoint.handler, existing)
                 }
             }

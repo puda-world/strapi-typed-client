@@ -7,6 +7,7 @@ export interface CustomEndpointType {
     outputType?: string // e.g., 'TeamInvitationAPI.CreateResponse'
     paramsType?: string // e.g., 'TeamInvitationAPI.CreateParams'
     queryType?: string // e.g., 'TeamInvitationAPI.CreateQuery'
+    metaType?: string // e.g., 'TeamInvitationAPI.FindMeta'
 }
 
 /**

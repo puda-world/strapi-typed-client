@@ -164,6 +164,24 @@ function parseEndpointsFromFile(filePath) {
                     }
                 }
             }
+            // Extract response meta type (for standard Strapi meta.pagination)
+            const metaStartMatch = actionBlock.match(/meta\s*[?]?\s*:\s*/)
+            if (metaStartMatch && metaStartMatch.index !== undefined) {
+                const afterMeta = actionBlock.slice(
+                    metaStartMatch.index + metaStartMatch[0].length,
+                )
+                if (afterMeta.startsWith('{')) {
+                    const metaBlock = extractBalancedBraces(afterMeta, 0)
+                    if (metaBlock) {
+                        types.meta = `{ ${metaBlock} }`
+                    }
+                } else {
+                    const simpleMatch = afterMeta.match(/^([^;\n}]+)/)
+                    if (simpleMatch) {
+                        types.meta = simpleMatch[1].trim()
+                    }
+                }
+            }
             if (Object.keys(types).length > 0) {
                 result[actionName] = types
             }

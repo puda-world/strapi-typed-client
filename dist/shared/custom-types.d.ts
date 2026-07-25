@@ -7,6 +7,7 @@ export interface CustomEndpointType {
     outputType?: string
     paramsType?: string
     queryType?: string
+    metaType?: string
 }
 /**
  * Parsed custom types from API namespace files

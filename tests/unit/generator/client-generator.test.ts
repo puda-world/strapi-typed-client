@@ -779,6 +779,33 @@ describe('ClientGenerator', () => {
             )
         })
 
+        it('should preserve standard Strapi meta for paginated custom routes', () => {
+            const endpoints: ParsedEndpoint[] = [
+                {
+                    method: 'GET',
+                    path: '/items/activity',
+                    handler: 'api::item.item.activity',
+                    controller: 'item',
+                    action: 'activity',
+                    types: {
+                        query: '{ page?: number }',
+                        response: '{ data: { documentId: string }[] }',
+                        meta: '{ pagination: { page: number; pageSize: number; pageCount: number; total: number } }',
+                    },
+                },
+            ]
+
+            const result = new ClientGenerator().generate(mockSchema, endpoints)
+
+            expect(result).toContain(
+                'Promise<StrapiResponse<ItemAPI.ActivityResponse> & { meta: ItemAPI.ActivityMeta }>',
+            )
+            expect(result).toContain(
+                'this.request<StrapiResponse<ItemAPI.ActivityResponse> & { meta: ItemAPI.ActivityMeta }>',
+            )
+            expect(result).toContain('return response')
+        })
+
         it('should allow untyped custom routes to receive query and request options', () => {
             const endpoints: ParsedEndpoint[] = [
                 {
