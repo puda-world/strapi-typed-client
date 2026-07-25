@@ -94,7 +94,7 @@ function parseEndpointsFromFile(filePath) {
                 )
                 if (afterBody.startsWith('{')) {
                     const bodyBlock = extractBalancedBraces(afterBody, 0)
-                    if (bodyBlock) {
+                    if (bodyBlock !== null) {
                         types.body = `{ ${bodyBlock} }`
                     }
                 } else {
@@ -118,7 +118,7 @@ function parseEndpointsFromFile(filePath) {
                         afterResponse,
                         0,
                     )
-                    if (responseBlock) {
+                    if (responseBlock !== null) {
                         types.response = `{ ${responseBlock} }`
                     }
                 } else {
@@ -136,7 +136,7 @@ function parseEndpointsFromFile(filePath) {
                 )
                 if (afterParams.startsWith('{')) {
                     const paramsBlock = extractBalancedBraces(afterParams, 0)
-                    if (paramsBlock) {
+                    if (paramsBlock !== null) {
                         types.params = `{ ${paramsBlock} }`
                     }
                 } else {
@@ -154,7 +154,7 @@ function parseEndpointsFromFile(filePath) {
                 )
                 if (afterQuery.startsWith('{')) {
                     const queryBlock = extractBalancedBraces(afterQuery, 0)
-                    if (queryBlock) {
+                    if (queryBlock !== null) {
                         types.query = `{ ${queryBlock} }`
                     }
                 } else {
@@ -172,7 +172,7 @@ function parseEndpointsFromFile(filePath) {
                 )
                 if (afterMeta.startsWith('{')) {
                     const metaBlock = extractBalancedBraces(afterMeta, 0)
-                    if (metaBlock) {
+                    if (metaBlock !== null) {
                         types.meta = `{ ${metaBlock} }`
                     }
                 } else {
