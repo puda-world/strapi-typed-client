@@ -1,0 +1,269 @@
+/**
+ * Next.js plugin for automatic Strapi type generation.
+ *
+ * Usage in next.config.ts:
+ *
+ *   import { withStrapiTypes } from 'strapi-typed-client/next'
+ *   export default withStrapiTypes({ output: './src/strapi', format: 'ts' })(nextConfig)
+ */
+import { execFileSync } from 'child_process'
+import * as fs from 'fs'
+import { createRequire } from 'module'
+import * as path from 'path'
+import { readClientHeaderConst } from '../shared/client-header.js'
+import { getGeneratorVersion } from '../shared/version.js'
+const _require = createRequire(import.meta.url)
+function getPackageDir() {
+    const pkgJsonPath = _require.resolve('strapi-typed-client/package.json')
+    return path.dirname(pkgJsonPath)
+}
+/**
+ * Resolve the output dir from config. An explicit `output` is required — the
+ * generated client is meant to be committed to the consumer's source tree, not
+ * written into node_modules (a reinstall would wipe it). Throws an actionable
+ * error when `output` is missing.
+ */
+export function resolveOutputDir(config) {
+    if (!config.output || !config.output.trim()) {
+        throw new Error(
+            '[strapi-typed-client] withStrapiTypes requires an `output` directory.\n' +
+                "Point it at your source tree, e.g. withStrapiTypes({ output: './src/strapi', format: 'ts' }).\n" +
+                'Generated code is meant to be committed to your repo, not written into node_modules.',
+        )
+    }
+    return path.resolve(process.cwd(), config.output.trim())
+}
+function generatedFilesExist(outputDir, format) {
+    const files =
+        format === 'ts'
+            ? ['types.ts', 'client.ts', 'index.ts']
+            : ['types.d.ts', 'client.d.ts', 'index.d.ts']
+    return files.every(f => fs.existsSync(path.join(outputDir, f)))
+}
+// ANSI colors matching Next.js output
+const green = s => `\x1b[32m${s}\x1b[0m`
+const red = s => `\x1b[31m${s}\x1b[0m`
+const dim = s => `\x1b[2m${s}\x1b[0m`
+function info(silent, msg) {
+    if (!silent) console.log(`${green('○')} ${msg}`)
+}
+function ok(silent, msg) {
+    if (!silent) console.log(`${green('✓')} ${msg}`)
+}
+function fail(msg) {
+    console.error(`${red('⨯')} ${msg}`)
+}
+function loading(silent, msg) {
+    if (silent) return () => {}
+    const frames = ['·  ', '·· ', '···', ' ··', '  ·', '   ']
+    let i = 0
+    process.stdout.write(`${green('○')} ${msg} ${frames[0]}`)
+    const id = setInterval(() => {
+        i = (i + 1) % frames.length
+        process.stdout.write(`\r${green('○')} ${msg} ${frames[i]}`)
+    }, 150)
+    return () => {
+        clearInterval(id)
+        process.stdout.write(`\r\x1b[K`)
+    }
+}
+async function startDevWatch(config) {
+    const outputDir = resolveOutputDir(config)
+    const format = config.format ?? 'js'
+    const silent = config.silent ?? false
+    const url =
+        config.strapiUrl || process.env.STRAPI_URL || 'http://localhost:1337'
+    const token = config.token || process.env.STRAPI_TOKEN
+    const { createApiClient } = await import('../cli/utils/api-client.js')
+    const { generate } = await import('../cli/commands/generate.js')
+    const { SseConnection } = await import('../shared/sse-client.js')
+    const client = createApiClient({ url, token })
+    // Force a one-time regen if the committed client was produced by a
+    // different generator version (e.g. the package was upgraded). Its schema
+    // hash may still match the remote, but the OUTPUT shape can be stale — the
+    // bare CLI generate/check path version-checks via isGeneratedOutputFresh,
+    // and the dev watcher must do the same or upgraders silently keep old types.
+    const localVersion = readClientHeaderConst(outputDir, 'GENERATOR_VERSION')
+    const installedVersion = getGeneratorVersion()
+    const versionStale =
+        !!localVersion &&
+        !!installedVersion &&
+        localVersion !== installedVersion
+    if (versionStale) {
+        info(
+            silent,
+            `Generator updated (v${localVersion} → v${installedVersion}); regenerating types`,
+        )
+    }
+    let lastHash =
+        !versionStale && generatedFilesExist(outputDir, format)
+            ? readClientHeaderConst(outputDir, 'SCHEMA_HASH')
+            : null
+    let generating = false
+    info(silent, `Watching for schema changes ${dim('(SSE)')}`)
+    const sse = new SseConnection({
+        url: client.sseUrl,
+        headers: client.getHeaders(),
+        async onEvent({ event, data }) {
+            if (event !== 'connected' || generating) return
+            try {
+                const { hash: remoteHash } = JSON.parse(data)
+                if (
+                    lastHash !== remoteHash ||
+                    !generatedFilesExist(outputDir, format)
+                ) {
+                    generating = true
+                    const stop = loading(silent, 'Regenerating types')
+                    const start = Date.now()
+                    const result = await generate({
+                        url,
+                        token,
+                        output: outputDir,
+                        silent: true,
+                        force: true,
+                        format,
+                        typecheck: config.typecheck,
+                    })
+                    stop()
+                    if (result.success) {
+                        ok(
+                            silent,
+                            `Types regenerated in ${dim(`${Date.now() - start}ms`)}`,
+                        )
+                        lastHash = remoteHash
+                    } else {
+                        fail(`Failed to regenerate: ${result.error}`)
+                    }
+                    generating = false
+                }
+            } catch {
+                generating = false
+            }
+        },
+    })
+    sse.connect()
+    const cleanup = () => {
+        sse.close()
+        releaseWatchLock()
+    }
+    process.on('SIGINT', cleanup)
+    process.on('SIGTERM', cleanup)
+    process.on('exit', cleanup)
+}
+function runBuildGenerate(config) {
+    const silent = config.silent ?? false
+    const url =
+        config.strapiUrl || process.env.STRAPI_URL || 'http://localhost:1337'
+    const token = config.token || process.env.STRAPI_TOKEN
+    const outputDir = resolveOutputDir(config)
+    const format = config.format ?? 'js'
+    const binPath = path.join(getPackageDir(), 'dist', 'cli', 'index.js')
+    const args = [
+        binPath,
+        'generate',
+        '--force',
+        '--silent',
+        '--output',
+        outputDir,
+        '--url',
+        url,
+        '--format',
+        format,
+    ]
+    if (config.typecheck === false) {
+        args.push('--no-typecheck')
+    }
+    if (token) {
+        args.push('--token', token)
+    }
+    const stop = loading(silent, 'Generating types')
+    const start = Date.now()
+    try {
+        execFileSync('node', args, { stdio: ['ignore', 'ignore', 'pipe'] })
+        stop()
+        ok(silent, `Types generated in ${dim(`${Date.now() - start}ms`)}`)
+    } catch (error) {
+        stop()
+        const stderr = error.stderr?.toString().trim()
+        fail(
+            `Failed to generate types, using existing if available${stderr ? `\n${stderr}` : ''}`,
+        )
+    }
+}
+/**
+ * Acquire a PID-based file lock so only one process runs the watcher.
+ * Next.js dev spawns multiple worker processes — each would start its own watcher.
+ * Lock lives inside the package dir so it's cleaned up on reinstall.
+ */
+function acquireWatchLock() {
+    const lockFile = path.join(getPackageDir(), 'watch.lock')
+    try {
+        // Check existing lock
+        const existing = fs.readFileSync(lockFile, 'utf-8').trim()
+        const pid = Number(existing)
+        if (pid && pid !== process.pid) {
+            try {
+                process.kill(pid, 0) // throws if process is dead
+                return false // another process owns the lock
+            } catch {
+                // stale lock, take over
+            }
+        }
+    } catch {
+        // no lock file
+    }
+    try {
+        fs.writeFileSync(lockFile, String(process.pid), 'utf-8')
+        return true
+    } catch {
+        return false
+    }
+}
+function releaseWatchLock() {
+    try {
+        const lockFile = path.join(getPackageDir(), 'watch.lock')
+        const existing = fs.readFileSync(lockFile, 'utf-8').trim()
+        if (Number(existing) === process.pid) {
+            fs.unlinkSync(lockFile)
+        }
+    } catch {
+        // ignore
+    }
+}
+// Detached telemetry/worker processes should never start the watcher
+function isMainNextProcess() {
+    return !process.argv.some(
+        arg =>
+            arg.includes('detached-flush') ||
+            arg.includes('next-telemetry') ||
+            arg.includes('/worker'),
+    )
+}
+export function withStrapiTypes(config) {
+    return nextConfig => {
+        const cfg = config ?? {}
+        const isDev =
+            process.env.NODE_ENV === 'development' && isMainNextProcess()
+        const isBuild = process.argv.includes('build')
+        // Generating modes need an explicit `output`; validate synchronously
+        // here so a missing config fails fast and clearly during next.config
+        // evaluation, rather than as an unhandled rejection inside the watcher.
+        if (isDev || isBuild) {
+            resolveOutputDir(cfg)
+        }
+        if (isDev) {
+            // next dev — SSE watcher (only one process via PID lock).
+            // Fire-and-forget: surface any async failure cleanly instead of as
+            // an unhandled rejection.
+            if (acquireWatchLock()) {
+                startDevWatch(cfg).catch(err => fail(err.message))
+            }
+        } else if (isBuild) {
+            // next build — one-time sync generation
+            runBuildGenerate(cfg)
+        }
+        // next start — do nothing, types already generated during build
+        return nextConfig
+    }
+}
+//# sourceMappingURL=index.js.map

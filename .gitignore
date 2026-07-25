@@ -2,8 +2,7 @@
 node_modules/
 yarn-error.log
 
-# Build output
-dist/
+# Build output is committed so SHA-pinned archive installs work without Yarn.
 
 # IDE
 .vscode/

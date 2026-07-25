@@ -1,0 +1,260 @@
+/**
+ * Generate command - generates TypeScript types from Strapi schema
+ */
+import * as fs from 'fs'
+import * as path from 'path'
+import { createApiClient } from '../utils/api-client.js'
+import {
+    readLocalSchemaHash,
+    readLocalGeneratorVersion,
+    requireOutputDir,
+    isInsideNodeModules,
+    assertOutputDirForFormat,
+} from '../utils/file-writer.js'
+import { transformSchema } from '../../core/schema-transformer.js'
+import { getGeneratorVersion } from '../../shared/version.js'
+const dim = s => `\x1b[2m${s}\x1b[0m`
+/**
+ * Whether committed output can be reused without regenerating. Requires the
+ * files to exist AND both the schema hash and the generator version to match —
+ * a package upgrade that changes the output format bumps the version, so an
+ * unchanged schema still forces a regen (otherwise new emitters never ship).
+ */
+export function isGeneratedOutputFresh(params) {
+    const { localHash, remoteHash, localVersion, cliVersion, allFilesExist } =
+        params
+    if (!localHash || !allFilesExist) return false
+    if (localHash !== remoteHash) return false
+    if (localVersion !== cliVersion) return false
+    return true
+}
+/**
+ * Generate types from Strapi API
+ */
+export async function generate(options) {
+    const format = options.format ?? 'js'
+    const filesWritten = []
+    try {
+        const outputDir = requireOutputDir(options.output)
+        assertOutputDirForFormat(outputDir, format)
+        // Create API client
+        const client = createApiClient({
+            url: options.url,
+            token: options.token,
+        })
+        const baseUrl =
+            options.url || process.env.STRAPI_URL || 'http://localhost:1337'
+        // Check if we need to regenerate (compare hashes)
+        if (!options.force) {
+            const localHash = readLocalSchemaHash(outputDir)
+            const localVersion = readLocalGeneratorVersion(outputDir)
+            const cliVersion = getGeneratorVersion()
+            // Verify generated files actually exist (they may be lost after package update)
+            const generatedFiles = (
+                format === 'ts'
+                    ? ['types.ts', 'client.ts', 'index.ts']
+                    : ['types.d.ts', 'client.d.ts', 'index.d.ts']
+            ).map(f => path.join(outputDir, f))
+            const allFilesExist = generatedFiles.every(f => fs.existsSync(f))
+            if (localHash && allFilesExist) {
+                if (!options.silent) {
+                    console.log('Checking schema hash...')
+                }
+                try {
+                    const { hash: remoteHash } = await client.getSchemaHash()
+                    if (
+                        isGeneratedOutputFresh({
+                            localHash,
+                            remoteHash,
+                            localVersion,
+                            cliVersion,
+                            allFilesExist,
+                        })
+                    ) {
+                        if (!options.silent) {
+                            console.log(
+                                `Types are up to date (hash: ${localHash.substring(0, 8)}...)`,
+                            )
+                        }
+                        return {
+                            success: true,
+                            filesWritten: [],
+                            hash: localHash,
+                            skipped: true,
+                        }
+                    }
+                    if (!options.silent) {
+                        if (localHash !== remoteHash) {
+                            console.log(
+                                `Schema changed (${localHash.substring(0, 8)}... -> ${remoteHash.substring(0, 8)}...)`,
+                            )
+                        } else {
+                            console.log(
+                                `Generator updated (v${localVersion ?? '?'} -> v${cliVersion}), regenerating...`,
+                            )
+                        }
+                    }
+                } catch {
+                    // If hash check fails, continue with full generation
+                    if (!options.silent) {
+                        console.log(
+                            'Could not check remote hash, regenerating...',
+                        )
+                    }
+                }
+            } else if (localHash && !allFilesExist) {
+                if (!options.silent) {
+                    console.log(
+                        'Generated files missing (package may have been updated), regenerating...',
+                    )
+                }
+            }
+        }
+        // Fetch schema from Strapi
+        if (!options.silent) {
+            console.log(`Fetching schema from ${baseUrl}...`)
+        }
+        const {
+            schema,
+            endpoints: apiEndpoints,
+            pluginEndpoints,
+            extraTypes,
+            authMode,
+            hash,
+        } = await client.getSchema()
+        // Merge API and plugin endpoints for generation
+        const endpoints = [...(apiEndpoints || []), ...(pluginEndpoints || [])]
+        if (!options.silent) {
+            console.log(
+                `  Content types: ${Object.keys(schema.contentTypes).length}`,
+            )
+            console.log(
+                `  Components: ${Object.keys(schema.components).length}`,
+            )
+            if (endpoints && endpoints.length > 0) {
+                console.log(`  Custom endpoints: ${endpoints.length}`)
+            }
+            if (extraTypes && extraTypes.length > 0) {
+                console.log(`  Extra types: ${extraTypes.length}`)
+            }
+            if (authMode === 'refresh') {
+                console.log('  Auth mode: refresh (session flow enabled)')
+            }
+        }
+        // Transform JSON schema to ParsedSchema format
+        const parsedSchema = transformSchema(schema)
+        // Generate types
+        if (!options.silent) {
+            console.log('Generating TypeScript types...')
+        }
+        // lazy: keeps the typescript compiler out of init/check/--help startup
+        const { Generator } = await import('../../generator/index.js')
+        const generator = new Generator(outputDir)
+        await generator.generate(
+            parsedSchema,
+            endpoints,
+            extraTypes,
+            hash,
+            getGeneratorVersion(),
+            format,
+            options.typecheck ?? true,
+            authMode ?? 'legacy',
+        )
+        // Track generated files
+        const emittedFiles =
+            format === 'ts'
+                ? ['types.ts', 'client.ts', 'index.ts']
+                : [
+                      'types.js',
+                      'types.d.ts',
+                      'client.js',
+                      'client.d.ts',
+                      'index.js',
+                      'index.d.ts',
+                  ]
+        for (const f of emittedFiles) {
+            filesWritten.push(path.join(outputDir, f))
+        }
+        if (!options.silent && isInsideNodeModules(outputDir)) {
+            console.log(
+                dim(
+                    'Types written into node_modules — a reinstall wipes them.\n' +
+                        'For durable, reviewable types, generate into your source tree and commit it:\n' +
+                        '  strapi-types generate --output ./src/strapi',
+                ),
+            )
+        }
+        return {
+            success: true,
+            filesWritten,
+            hash,
+        }
+    } catch (error) {
+        return {
+            success: false,
+            filesWritten,
+            error: error.message,
+        }
+    }
+}
+/**
+ * CLI handler for generate command
+ */
+export function createGenerateCommand(program) {
+    program
+        .command('generate')
+        .description('Generate TypeScript types from Strapi schema')
+        .option(
+            '-u, --url <url>',
+            'Strapi API URL (default: STRAPI_URL env or http://localhost:1337)',
+        )
+        .option(
+            '-t, --token <token>',
+            'Strapi API token (default: STRAPI_TOKEN env)',
+        )
+        .option(
+            '-o, --output <path>',
+            'Output directory (required) — your source tree, e.g. ./src/strapi',
+        )
+        .option('-s, --silent', 'Suppress output messages')
+        .option('-f, --force', 'Force regeneration even if schema unchanged')
+        .option(
+            '--format <js|ts>',
+            'Output format: js (compiled .js + .d.ts, default) or ts (raw .ts for monorepo/source-tree output)',
+            'js',
+        )
+        .option(
+            '--no-typecheck',
+            'Write the generated client even if it fails type-checking (escape hatch for strict-only false positives)',
+        )
+        .action(async opts => {
+            if (opts.format && opts.format !== 'js' && opts.format !== 'ts') {
+                console.error(
+                    `Invalid --format value: ${opts.format}. Expected 'js' or 'ts'.`,
+                )
+                process.exit(1)
+            }
+            const result = await generate({
+                url: opts.url,
+                token: opts.token,
+                output: opts.output,
+                silent: opts.silent,
+                force: opts.force,
+                format: opts.format,
+                typecheck: opts.typecheck,
+            })
+            if (!result.success) {
+                console.error('Generation failed:', result.error)
+                process.exit(1)
+            }
+            if (!opts.silent && !result.skipped) {
+                console.log('Generation complete!')
+                if (result.hash) {
+                    console.log(
+                        `Schema hash: ${result.hash.substring(0, 8)}...`,
+                    )
+                }
+            }
+        })
+}
+//# sourceMappingURL=generate.js.map
